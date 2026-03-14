@@ -12,7 +12,11 @@ Supported models:
 """
 
 import torch
-from transformers import AutoModelForVision2Seq, AutoProcessor
+try:
+    from transformers import AutoModelForImageTextToText as AutoModelForVision2Seq
+except ImportError:
+    from transformers import AutoModelForVision2Seq
+from transformers import AutoProcessor
 
 from .base import BaseAdapter
 
@@ -24,8 +28,11 @@ class SmolVLMAdapter(BaseAdapter):
     # ------------------------------------------------------------------ #
 
     def load(self, cfg: dict) -> None:
-        """Training mode: QLoRA."""
+        """Training mode: full fine-tune hoặc QLoRA tuỳ config."""
         model_name = cfg["model"]["name"]
+        use_lora = "lora" in cfg
+        use_quant = "quantization" in cfg
+
         print(f"[SmolVLM] Loading processor: {model_name}")
         self.processor = AutoProcessor.from_pretrained(model_name)
         self.pad_token_id = (
@@ -34,15 +41,27 @@ class SmolVLMAdapter(BaseAdapter):
             else self.processor.tokenizer.eos_token_id
         )
 
-        print(f"[SmolVLM] Loading model (4-bit): {model_name}")
-        model = AutoModelForVision2Seq.from_pretrained(
-            model_name,
-            quantization_config=self._build_bnb_config(cfg["quantization"]),
+        load_kwargs = dict(
             device_map="auto",
             torch_dtype=torch.bfloat16,
-            _attn_implementation="eager",  # flash_attn optional
+            _attn_implementation="eager",
         )
-        self.model = self._apply_qlora(model, cfg["lora"])
+        if use_quant:
+            print(f"[SmolVLM] Loading model (4-bit): {model_name}")
+            load_kwargs["quantization_config"] = self._build_bnb_config(cfg["quantization"])
+        else:
+            print(f"[SmolVLM] Loading model (full precision): {model_name}")
+
+        model = AutoModelForVision2Seq.from_pretrained(model_name, **load_kwargs)
+
+        if use_lora:
+            self.model = self._apply_qlora(model, cfg["lora"])
+        else:
+            model.train()
+            self.model = model
+            total = sum(p.numel() for p in model.parameters())
+            trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            print(f"trainable params: {trainable:,} || all params: {total:,} || trainable%: {trainable/total*100:.4f}")
 
     def load_for_inference(self, cfg: dict, checkpoint: str | None = None) -> None:
         """Inference mode: full precision, optional LoRA merge."""
@@ -121,15 +140,27 @@ class SmolVLMAdapter(BaseAdapter):
     ) -> dict:
         full_texts, prompt_texts, images = self._build_texts(items, training)
 
-        # Gọi processor 1 lần cho cả batch — processor tự handle pixel_values padding
+        # Gọi processor 1 lần cho cả batch — không dùng truncation ở đây vì
+        # transformers v5 validate image token count trước/sau truncation → mismatch.
+        # Thay vào đó truncate thủ công các tensor sau khi processor chạy xong.
         enc = self.processor(
             text=full_texts,
             images=images,
             padding=True,
-            truncation=True,
-            max_length=max_length,
             return_tensors="pt",
         )
+
+        # Truncate thủ công: chỉ cắt các tensor có seq_dim == 1
+        seq_len = enc.input_ids.shape[1]
+        if seq_len > max_length:
+            truncated = {}
+            for k, v in enc.items():
+                if isinstance(v, torch.Tensor) and v.ndim >= 2 and v.shape[1] == seq_len:
+                    truncated[k] = v[:, :max_length]
+                else:
+                    truncated[k] = v
+            enc = type(enc)(**truncated)
+
         result = dict(enc)
 
         if training:

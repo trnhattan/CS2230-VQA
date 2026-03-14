@@ -1,5 +1,5 @@
 model:
-  name: "HuggingFaceTB/SmolVLM-Instruct"
+  name: "HuggingFaceTB/SmolVLM-500M-Instruct"
   type: "smolvlm"
 
 data:
@@ -9,12 +9,12 @@ data:
   image_dir: "data/st_images"
 
 training:
-  output_dir: "checkpoints/smolvlm_2b"
+  output_dir: "checkpoints/smolvlm_500m_full"
   num_train_epochs: 3
-  per_device_train_batch_size: 1
-  per_device_eval_batch_size: 1
-  gradient_accumulation_steps: 16
-  learning_rate: 2.0e-4
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8    # effective batch = 16
+  learning_rate: 5.0e-5             # nhỏ hơn so với LoRA để tránh catastrophic forgetting
   weight_decay: 0.01
   warmup_ratio: 0.03
   max_length: 1024
@@ -29,22 +29,11 @@ training:
   report_to: "none"
   seed: 42
 
-lora:
-  r: 16
-  lora_alpha: 32
-  lora_dropout: 0.05
-  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-  bias: "none"
-
-quantization:
-  load_in_4bit: true
-  bnb_4bit_quant_type: "nf4"
-  bnb_4bit_compute_dtype: "bfloat16"
-  bnb_4bit_use_double_quant: true
+# Không có section lora và quantization → full fine-tune
 
 evaluation:
   checkpoint: null
-  batch_size: 4
+  batch_size: 8
   max_new_tokens: 64
   num_beams: 1
-  results_file: "results/smolvlm_2b_test.json"
+  results_file: "results/smolvlm_500m_full_test.json"

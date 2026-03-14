@@ -17,7 +17,7 @@ training:
   learning_rate: 2.0e-4
   weight_decay: 0.01
   warmup_ratio: 0.03
-  max_length: 512
+  max_length: 1024
   logging_steps: 50
   eval_steps: 500
   save_steps: 500
