@@ -6,6 +6,7 @@ Mỗi model implement lớp này để xử lý:
   - generate: chạy model.generate() và decode output
 """
 
+import os
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -17,6 +18,14 @@ class BaseAdapter(ABC):
     model: Any = None
     processor: Any = None
     pad_token_id: int = 0
+
+    @staticmethod
+    def _get_device_map():
+        """Single GPU → 'auto'; multi-GPU DDP → đặt model lên GPU của process."""
+        local_rank = os.environ.get("LOCAL_RANK")
+        if local_rank is not None:
+            return {"": int(local_rank)}
+        return "auto"
 
     # ------------------------------------------------------------------ #
     #  Interface bắt buộc                                                 #

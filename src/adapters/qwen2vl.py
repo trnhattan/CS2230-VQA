@@ -41,7 +41,7 @@ class Qwen2VLAdapter(BaseAdapter):
         self.pad_token_id = self.processor.tokenizer.pad_token_id or 0
 
         load_kwargs = dict(
-            device_map="auto",
+            device_map=self._get_device_map(),
             torch_dtype=torch.bfloat16,
         )
         if use_quant:
@@ -78,7 +78,7 @@ class Qwen2VLAdapter(BaseAdapter):
 
         print(f"[Qwen2-VL] Loading base model: {model_name}")
         base = Qwen2VLForConditionalGeneration.from_pretrained(
-            model_name, torch_dtype=dtype, device_map="auto"
+            model_name, torch_dtype=dtype, device_map=self._get_device_map()
         )
         if checkpoint:
             print(f"[Qwen2-VL] Merging LoRA từ: {checkpoint}")

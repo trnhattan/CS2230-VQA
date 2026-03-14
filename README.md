@@ -79,7 +79,24 @@ python -m src.train --config configs/smolvlm_2b.yaml
 python -m src.train --config configs/smolvlm2_2b.yaml
 ```
 
-Checkpoint tốt nhất theo ANLS trên dev set được lưu tại `checkpoints/<model>/best_model/`.
+Checkpoint tốt nhất theo eval_loss trên dev set được lưu tại `checkpoints/<model>/best_model/`.
+
+### Multi-GPU (Data Parallelism)
+
+Hỗ trợ train trên nhiều GPU bằng `accelerate` hoặc `torchrun`. Code tự detect `LOCAL_RANK` để chuyển từ model parallelism sang data parallelism.
+
+```bash
+# 2 GPUs
+accelerate launch --num_processes=2 -m src.train --config configs/qwen2vl_2b.yaml
+
+# 4 GPUs
+accelerate launch --num_processes=4 -m src.train --config configs/internvl2_2b.yaml
+
+# Hoặc dùng torchrun
+torchrun --nproc_per_node=2 -m src.train --config configs/qwen2vl_2b.yaml
+```
+
+> **Lưu ý:** Effective batch size = `per_device_train_batch_size × num_gpus × gradient_accumulation_steps`. Khi tăng số GPU, nên giảm `gradient_accumulation_steps` tương ứng để giữ effective batch size.
 
 ---
 

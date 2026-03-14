@@ -181,7 +181,7 @@ class InternVL2Adapter(BaseAdapter):
         load_kwargs = dict(
             dtype=torch.bfloat16,
             trust_remote_code=True,
-            device_map="auto",
+            device_map=self._get_device_map(),
         )
         if use_quant:
             print(f"[InternVL2] Loading model (4-bit): {model_name}")
@@ -228,7 +228,7 @@ class InternVL2Adapter(BaseAdapter):
                 model_name,
                 dtype=dtype,
                 trust_remote_code=True,
-                device_map="auto",
+                device_map=self._get_device_map(),
             )
         base.img_context_token_id = self.tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
         self._num_image_token = base.num_image_token
