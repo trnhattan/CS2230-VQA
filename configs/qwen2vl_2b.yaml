@@ -13,8 +13,8 @@ data:
 training:
   output_dir: "checkpoints/qwen2vl_2b"
   num_train_epochs: 3
-  per_device_train_batch_size: 1
-  per_device_eval_batch_size: 1
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
   gradient_accumulation_steps: 16   # effective batch = 16
   learning_rate: 2.0e-4
   weight_decay: 0.01
@@ -38,11 +38,11 @@ lora:
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
   bias: "none"
 
-quantization:
-  load_in_4bit: true
-  bnb_4bit_quant_type: "nf4"
-  bnb_4bit_compute_dtype: "bfloat16"
-  bnb_4bit_use_double_quant: true
+# quantization:
+#   load_in_4bit: true
+#   bnb_4bit_quant_type: "nf4"
+#   bnb_4bit_compute_dtype: "bfloat16"
+#   bnb_4bit_use_double_quant: true
 
 evaluation:
   checkpoint: null   # null = base model zero-shot; hoặc "checkpoints/qwen2vl_2b/best_model"
