@@ -14,12 +14,30 @@ Supported models:
   - Model tự handle image embedding injection trong forward()
 """
 
+from contextlib import contextmanager
+
 import torch
 import torchvision.transforms as T
 from torchvision.transforms.functional import InterpolationMode
 from transformers import AutoModel, AutoTokenizer
 
 from .base import BaseAdapter
+
+# --- Patch transformers v5 compat cho InternVL2 trust_remote_code ---
+# InternVL2 custom model thiếu `all_tied_weights_keys` mà quantizer v5 cần.
+try:
+    import transformers.quantizers.base as _qbase
+
+    _orig_get_keys = _qbase.get_keys_to_not_convert
+
+    def _patched_get_keys(model):
+        if not hasattr(model, "all_tied_weights_keys"):
+            model.all_tied_weights_keys = {}
+        return _orig_get_keys(model)
+
+    _qbase.get_keys_to_not_convert = _patched_get_keys
+except (ImportError, AttributeError):
+    pass
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -98,11 +116,49 @@ def _preprocess_image(image, input_size=448, max_num=6):
     return torch.stack([transform(img) for img in images])
 
 
+@contextmanager
+def _patch_meta_linspace():
+    """InternVL2 custom code gọi torch.linspace(...).item() trong __init__,
+    nhưng device_map='auto' dùng meta tensors → .item() crash.
+    Patch tạm để linspace trả về CPU tensor thay vì meta tensor."""
+    _orig = torch.linspace
+
+    def _safe(*args, **kwargs):
+        t = _orig(*args, **kwargs)
+        return t.to("cpu") if t.is_meta else t
+
+    torch.linspace = _safe
+    try:
+        yield
+    finally:
+        torch.linspace = _orig
+
+
 class InternVL2Adapter(BaseAdapter):
 
     _max_num_tiles: int = 6
     _num_image_token: int = 256
     _im_end_id: int = 0
+
+    @staticmethod
+    def _apply_qlora(model, lora_cfg: dict):
+        """Override: không dùng task_type vì InternVL2 custom forward
+        không chấp nhận inputs_embeds mà PeftModelForCausalLM tự thêm."""
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+
+        model = prepare_model_for_kbit_training(
+            model, use_gradient_checkpointing=True
+        )
+        lora_config = LoraConfig(
+            r=lora_cfg["r"],
+            lora_alpha=lora_cfg["lora_alpha"],
+            lora_dropout=lora_cfg["lora_dropout"],
+            target_modules=lora_cfg["target_modules"],
+            bias=lora_cfg["bias"],
+        )
+        model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
+        return model
 
     # ------------------------------------------------------------------ #
     #  Load                                                                #
@@ -123,8 +179,7 @@ class InternVL2Adapter(BaseAdapter):
         self._im_end_id = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
 
         load_kwargs = dict(
-            torch_dtype=torch.bfloat16,
-            low_cpu_mem_usage=True,
+            dtype=torch.bfloat16,
             trust_remote_code=True,
             device_map="auto",
         )
@@ -134,7 +189,8 @@ class InternVL2Adapter(BaseAdapter):
         else:
             print(f"[InternVL2] Loading model (bf16): {model_name}")
 
-        model = AutoModel.from_pretrained(model_name, **load_kwargs)
+        with _patch_meta_linspace():
+            model = AutoModel.from_pretrained(model_name, **load_kwargs)
 
         # forward() cần img_context_token_id để thay embedding
         model.img_context_token_id = self.tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
@@ -167,13 +223,13 @@ class InternVL2Adapter(BaseAdapter):
         self._im_end_id = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
 
         print(f"[InternVL2] Loading base model: {model_name}")
-        base = AutoModel.from_pretrained(
-            model_name,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=True,
-            trust_remote_code=True,
-            device_map="auto",
-        )
+        with _patch_meta_linspace():
+            base = AutoModel.from_pretrained(
+                model_name,
+                dtype=dtype,
+                trust_remote_code=True,
+                device_map="auto",
+            )
         base.img_context_token_id = self.tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
         self._num_image_token = base.num_image_token
 

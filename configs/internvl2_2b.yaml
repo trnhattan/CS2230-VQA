@@ -34,7 +34,7 @@ lora:
   r: 16
   lora_alpha: 32
   lora_dropout: 0.05
-  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  target_modules: ["wqkv", "wo", "w1", "w2", "w3"]
   bias: "none"
 
 quantization:
