@@ -2,7 +2,7 @@ model:
   name: "Qwen/Qwen2-VL-2B-Instruct"
   type: "qwen2vl"
   min_pixels: 256   # 256 * 28 * 28 ≈ 200K pixels
-  max_pixels: 1280  # 1280 * 28 * 28 ≈ 1M pixels  (giảm xuống 512 nếu VRAM <10GB)
+  max_pixels: 512   # 512 * 28 * 28 ≈ 400K pixels → ~512 patches tối đa
 
 data:
   train_file: "data/ViTextVQA_train.json"

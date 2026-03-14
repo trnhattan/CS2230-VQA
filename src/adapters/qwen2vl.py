@@ -125,10 +125,12 @@ class Qwen2VLAdapter(BaseAdapter):
                 labels_full = self._compute_labels(
                     ids_full, full_text, prompt_text, self.processor.tokenizer
                 )
-                all_labels.append(labels_full[:max_length])
+                all_labels.append(labels_full)
 
-            all_input_ids.append(ids_full[:max_length])
-            all_masks.append(mask_full[:max_length])
+            # Không truncate input_ids vì sẽ cắt image placeholder tokens
+            # → mismatch với pixel_values. Kiểm soát độ dài qua max_pixels trong config.
+            all_input_ids.append(ids_full)
+            all_masks.append(mask_full)
             all_pixel_values.append(enc.pixel_values)
             all_grid_thw.append(enc.image_grid_thw)
 
