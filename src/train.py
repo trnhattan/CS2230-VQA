@@ -5,6 +5,7 @@ Cách dùng:
     python -m src.train --config configs/qwen2vl_2b.yaml
     python -m src.train --config configs/smolvlm_500m.yaml
     python -m src.train --config configs/smolvlm_2b.yaml
+    python -m src.train --config configs/internvl2_2b.yaml
 """
 
 import argparse
@@ -13,81 +14,16 @@ import sys
 
 import torch
 import yaml
-from torch.utils.data import DataLoader
 from transformers import Trainer, TrainingArguments
-from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from src.adapters import get_adapter
 from src.dataset import ViTextVQADataset, VQADataCollator
-from src.metrics import compute_metrics
 
 
 def load_config(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-class VQATrainer(Trainer):
-    """
-    Custom Trainer: evaluate bằng model.generate() → tính ANLS thực sự.
-    HuggingFace Trainer mặc định dùng loss để eval — không phù hợp với VQA.
-    """
-
-    def __init__(self, *args, adapter=None, dev_dataset_raw=None, eval_cfg=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._adapter = adapter
-        self._dev_dataset_raw = dev_dataset_raw
-        self._eval_cfg = eval_cfg or {}
-
-    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
-        if self._dev_dataset_raw is None:
-            return super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
-
-        self.model.eval()
-        batch_size = self._eval_cfg.get("eval_batch_size", 2)
-        max_new_tokens = self._eval_cfg.get("max_new_tokens", 64)
-        max_length = self._eval_cfg.get("max_length", 512)
-
-        collator = VQADataCollator(self._adapter, max_length=max_length, training=False)
-        loader = DataLoader(
-            self._dev_dataset_raw,
-            batch_size=batch_size,
-            collate_fn=lambda x: x,
-            num_workers=0,
-            shuffle=False,
-        )
-
-        predictions, ground_truths = [], []
-
-        for raw_batch in tqdm(loader, desc="Eval (dev)"):
-            ground_truths.extend(item["all_answers"] for item in raw_batch)
-
-            inputs = collator(raw_batch)
-            inputs = {
-                k: v.to(self.model.device) if isinstance(v, torch.Tensor) else v
-                for k, v in inputs.items()
-            }
-
-            with torch.no_grad():
-                preds = self._adapter.generate(
-                    inputs,
-                    max_new_tokens=max_new_tokens,
-                    num_beams=1,
-                )
-            predictions.extend(preds)
-
-        scores = compute_metrics(predictions, ground_truths)
-        output = {
-            f"{metric_key_prefix}_anls": scores["anls"],
-            f"{metric_key_prefix}_exact_match": scores["exact_match"],
-            f"{metric_key_prefix}_num_samples": scores["num_samples"],
-        }
-        self.log(output)
-        self.control = self.callback_handler.on_evaluate(
-            self.args, self.state, self.control, output
-        )
-        return output
 
 
 def train(config_path: str):
@@ -105,7 +41,7 @@ def train(config_path: str):
     dev_dataset = ViTextVQADataset(data_cfg["dev_file"], data_cfg["image_dir"])
     print(f"Train: {len(train_dataset):,} | Dev: {len(dev_dataset):,}")
 
-    train_collator = VQADataCollator(
+    collator = VQADataCollator(
         adapter, max_length=t_cfg["max_length"], training=True
     )
 
@@ -125,8 +61,8 @@ def train(config_path: str):
         save_steps=t_cfg.get("save_steps", 500),
         save_total_limit=t_cfg.get("save_total_limit", 2),
         load_best_model_at_end=t_cfg.get("load_best_model_at_end", True),
-        metric_for_best_model=t_cfg.get("metric_for_best_model", "eval_anls"),
-        greater_is_better=t_cfg.get("greater_is_better", True),
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
         bf16=torch.cuda.is_bf16_supported(),
         fp16=not torch.cuda.is_bf16_supported(),
         gradient_checkpointing=True,
@@ -137,19 +73,12 @@ def train(config_path: str):
         seed=t_cfg.get("seed", 42),
     )
 
-    trainer = VQATrainer(
+    trainer = Trainer(
         model=adapter.model,
         args=training_args,
         train_dataset=train_dataset,
-        eval_dataset=dev_dataset,  # Dùng để Trainer không báo lỗi thiếu eval_dataset
-        data_collator=train_collator,
-        adapter=adapter,
-        dev_dataset_raw=dev_dataset,
-        eval_cfg={
-            "max_new_tokens": cfg["evaluation"].get("max_new_tokens", 64),
-            "eval_batch_size": t_cfg["per_device_eval_batch_size"],
-            "max_length": t_cfg["max_length"],
-        },
+        eval_dataset=dev_dataset,
+        data_collator=collator,
     )
 
     print("Bắt đầu training...")
