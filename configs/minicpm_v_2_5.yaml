@@ -1,0 +1,50 @@
+model:
+  name: "openbmb/MiniCPM-Llama3-V-2_5"
+  type: "minicpm"
+
+data:
+  train_file: "data/ViTextVQA_train.json"
+  dev_file: "data/ViTextVQA_dev.json"
+  test_file: "data/ViTextVQA_test_gt.json"
+  image_dir: "data/st_images"
+
+training:
+  output_dir: "checkpoints/minicpm_v_2_5"
+  num_train_epochs: 3
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 16
+  learning_rate: 2.0e-4
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  max_length: 2048
+  logging_steps: 50
+  eval_steps: 500
+  save_steps: 500
+  save_total_limit: 2
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_loss"
+  greater_is_better: false
+  dataloader_num_workers: 2
+  report_to: "none"
+  seed: 42
+
+lora:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  bias: "none"
+
+# quantization:
+#   load_in_4bit: true
+#   bnb_4bit_quant_type: "nf4"
+#   bnb_4bit_compute_dtype: "bfloat16"
+#   bnb_4bit_use_double_quant: true
+
+evaluation:
+  checkpoint: null
+  batch_size: 4
+  max_new_tokens: 64
+  num_beams: 1
+  results_file: "results/minicpm_v_2_5_test.json"
